@@ -4,10 +4,12 @@
 
 import argparse
 import os
+import re
 import shutil
 import subprocess
 import sys
-import re
+import urllib.parse
+import urllib.request
 
 import portage
 
@@ -64,6 +66,26 @@ def git_clone_scripts(ref):
     print(f">>> Git clone in {GIT_LOCATION} successful")
 
 
+def resolve_revision(revision):
+    """Resolve a shortened commit SHA to the full SHA through GitHub."""
+    if not re.fullmatch(r"[0-9A-Fa-f]{4,39}", revision):
+        return revision
+
+    encoded_revision = urllib.parse.quote(revision, safe="")
+    request = urllib.request.Request(
+        f"https://api.github.com/repos/{GH_REPO}/commits/{encoded_revision}",
+        headers={"Accept": "application/vnd.github.sha"},
+    )
+    with urllib.request.urlopen(request) as response:
+        resolved_revision = response.read().decode("ascii").strip()
+
+    if not re.fullmatch(r"[0-9A-Fa-f]{40}", resolved_revision):
+        raise ValueError(f"GitHub returned an invalid SHA for revision {revision}")
+
+    print(f">>> Resolved revision {revision} to {resolved_revision}.")
+    return resolved_revision
+
+
 def sync_repo(revision=None):
     if revision is not None:
         ref = revision
@@ -82,6 +104,8 @@ def sync_repo(revision=None):
             git_ref = ref_match.group(1)
             print(f">>> Gitref detected in version {ref}, will check out {git_ref}.")
             ref = git_ref
+
+    ref = resolve_revision(ref)
 
     if os.path.isdir(GIT_LOCATION) and not os.path.islink(GIT_LOCATION):
         shutil.rmtree(GIT_LOCATION)
@@ -108,7 +132,7 @@ def main():
             subprocess.check_call([post_sync])
         subprocess.check_call(["emerge", "--check-news", "--quiet"])
     except Exception as e:
-        print(e.output)
+        print(e)
         sys.stderr.write(">>> No git repositories configured.\n")
         sys.exit(1)
 
