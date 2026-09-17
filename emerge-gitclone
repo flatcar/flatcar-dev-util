@@ -11,8 +11,8 @@ import re
 import portage
 
 
-GIT_URI = "https://github.com/flatcar/{repo}.git"
-GIT_LOCATION = "/var/lib/portage/{repo}"
+GH_REPO = "flatcar/scripts"
+GIT_LOCATION = "/home/core/scripts"
 
 
 def get_release():
@@ -39,36 +39,28 @@ def get_channel():
     return channel
 
 
-def git_clone_scripts(repo_url, repo_location, ref):
+def git_clone_scripts(ref):
     """Clone the scripts repo at the given location, and handle submodules (if applicable)"""
-    print(f">>> Starting git clone in {repo_location}")
+    print(f">>> Starting git clone at {ref} in {GIT_LOCATION}")
     os.umask(0o022)
-    subprocess.check_call(
-        ["git", "clone", repo_url, repo_location]
-    )
-
-    # Check if this ref uses submodules and check these out if it does.
-    subprocess.check_output(
-        ["git", "-C", repo_location, "checkout", ref]
-    )
-    try:
-        with open(repo_location + '/.gitmodules') as gm:
-            gmc = gm.read()
-            if '[submodule ' in gmc:
-                print(f">>> Submodules detected in {ref}.")
-                subprocess.check_output(
-                    ["git", "-C", repo_location, "submodule", "init"]
-                )
-                subprocess.check_output(
-                    ["git", "-C", repo_location, "submodule", "update"]
-                )
-            else:
-                print(f">>> Empty or invalid submodule config detected in {ref}")
-                print(f">>>  at {repo_location}/.gitmodules. Ignoring and continuing w/o submodules.")
-    except (FileNotFoundError, IOError):
-        print(f">>> No submodules detected in {ref}. Assuming unified scripts repo.")
-
-    print(f">>> Git clone in {repo_location} successful")
+    subprocess.check_call([
+        "git",
+        "clone",
+        "--depth=1",
+        "--revision", ref,
+        f"https://github.com/{GH_REPO}.git", GIT_LOCATION,
+    ])
+    # We could handle the submodules with the clone above, but the
+    # --single-branch option does not propagate.
+    subprocess.check_call([
+        "git", "-C", GIT_LOCATION,
+        "submodule", "update",
+        "--init",
+        "--recursive",
+        "--depth=1",
+        "--single-branch",
+    ])
+    print(f">>> Git clone in {GIT_LOCATION} successful")
 
 
 def sync_repo():
@@ -87,30 +79,12 @@ def sync_repo():
         print(f">>> Gitref detected in version {ref}, will check out {git_ref}.")
         ref = git_ref
 
-    repo_list = ["scripts", "coreos-overlay", "portage-stable"]
+    if os.path.isdir(GIT_LOCATION) and not os.path.islink(GIT_LOCATION):
+        shutil.rmtree(GIT_LOCATION)
+    elif os.path.lexists(GIT_LOCATION):
+        os.unlink(GIT_LOCATION)
 
-    for repo in repo_list:
-        if os.path.isdir(GIT_LOCATION.format(repo=repo)) and not os.path.islink(
-            GIT_LOCATION.format(repo=repo)
-        ):
-            shutil.rmtree(GIT_LOCATION.format(repo=repo))
-        if os.path.lexists(GIT_LOCATION.format(repo=repo)):
-            os.unlink(GIT_LOCATION.format(repo=repo))
-
-        if repo == "scripts":
-            git_clone_scripts(
-                repo_url=GIT_URI.format(repo=repo),
-                repo_location=GIT_LOCATION.format(repo=repo),
-                ref=ref
-            )
-
-        else:
-            print(f">>> Symlink the repository with the appropriate folder - {repo}")
-            os.symlink(
-                GIT_LOCATION.format(repo="scripts")
-                + f"/sdk_container/src/third_party/{repo}",
-                GIT_LOCATION.format(repo=repo),
-            )
+    git_clone_scripts(ref=ref)
 
 
 def main():
