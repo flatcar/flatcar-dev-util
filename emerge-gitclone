@@ -2,6 +2,7 @@
 # Copyright The Flatcar Authors.
 # SPDX-License-Identifier: Apache-2.0
 
+import argparse
 import os
 import shutil
 import subprocess
@@ -63,21 +64,24 @@ def git_clone_scripts(ref):
     print(f">>> Git clone in {GIT_LOCATION} successful")
 
 
-def sync_repo():
-    release = get_release()
-    channel = get_channel()
-    ref = f"{channel}-{release}"
+def sync_repo(revision=None):
+    if revision is not None:
+        ref = revision
+    else:
+        release = get_release()
+        channel = get_channel()
+        ref = f"{channel}-{release}"
 
-    # Check if release ends with a git ref. If it does we're dealing with
-    #   a dev build which does not necessarily have a tag on 'scripts'.
-    # These version strings look like e.g. "3552.0.0+nightly-20230323-2100-4-g5d72f4ee",
-    #   with "-g<checksum>" being a git ref.
-    gitref_pat = r'-g([0-9A-Fa-f]+)$'
-    ref_match = re.search(gitref_pat, release)
-    if ref_match:
-        git_ref = ref_match.group(1)
-        print(f">>> Gitref detected in version {ref}, will check out {git_ref}.")
-        ref = git_ref
+        # Check if release ends with a git ref. If it does we're dealing with
+        #   a dev build which does not necessarily have a tag on 'scripts'.
+        # These version strings look like e.g. "3552.0.0+nightly-20230323-2100-4-g5d72f4ee",
+        #   with "-g<checksum>" being a git ref.
+        gitref_pat = r'-g([0-9A-Fa-f]+)$'
+        ref_match = re.search(gitref_pat, release)
+        if ref_match:
+            git_ref = ref_match.group(1)
+            print(f">>> Gitref detected in version {ref}, will check out {git_ref}.")
+            ref = git_ref
 
     if os.path.isdir(GIT_LOCATION) and not os.path.islink(GIT_LOCATION):
         shutil.rmtree(GIT_LOCATION)
@@ -88,8 +92,15 @@ def sync_repo():
 
 
 def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--revision",
+        help="scripts repository revision to clone instead of the release-derived ref",
+    )
+    args = parser.parse_args()
+
     try:
-        sync_repo()
+        sync_repo(revision=args.revision)
         # Perform normal post-sync tasks
         configroot = portage.settings["PORTAGE_CONFIGROOT"]
         post_sync = "%s/etc/portage/bin/post_sync" % configroot
